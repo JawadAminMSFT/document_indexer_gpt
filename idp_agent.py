@@ -10,7 +10,7 @@ from datetime import datetime
 
 # Constants
 AZURE_OPENAI_TEMP = 0
-AZURE_OPENAI_MAX_TOKENS = 1000
+AZURE_OPENAI_MAX_TOKENS = 2500
 RESULTS_DIR = "results"
 
 # Initialize Azure OpenAI client
@@ -32,7 +32,7 @@ def ocr_data_from_image_form(image_path: str):
         model=AZURE_OPENAI_DEPLOYMENT,
         response_format={"type": "text"},
         messages=[
-            {"role": "system", "content": "You are a helpful image analysis and OCR extraction assistant. You will be tasked with analyzing various images of forms, and you will provide a list of key value pairs with the checkbox data, labels and field values, and additional data as applicable. Return a list of key value pairs where each field is in a new line with clear spacing and bullets. Do not return any additional content other than the list of key value pairs - this is a strict requirement with a penalty for violation."},
+            {"role": "system", "content": "You are a helpful image analysis and data extraction assistant. You will be tasked with analyzing various images of forms, ID cards, invoices etc. and you will provide a list of key value pairs with the checkbox data, labels and field values, and additional data as applicable. Return a list of key value pairs where each field is in a new line with a logical numbering convention and spacing. Do not return any additional content other than the list of key value pairs - this is a strict requirement with a penalty for violation."},
             {"role": "user", "content": [
                 {"type": "text", "text": 
                  """You will perform 2 tasks: \
@@ -47,14 +47,15 @@ def ocr_data_from_image_form(image_path: str):
                  Ensure that the the returned list is complete and concise without missing key details. \
                 
                  Task 2: \
-                 Verify and validate that the returned list is complete and concise without missing key details or key fields/checkboxes in the form, adding any missing information back to the list. Be very diligent as there is a financial penalty for missing fields/checkboxes or inaccurate values. \
+                 Verify and validate that the returned list is complete and concise without missing key details or key fields/checkboxes in the form, adding any missing information back to the list. \
+                 Be very diligent as there is a financial penalty for missing fields/checkboxes or inaccurate values. In some cases, the data may be laid out in horizontal columns as well as vertical rows, and needs to included in both cases. \
                 
-                 Once both tasks are complete, return a list of key value pairs with a reasonable spacing / bulleting convention. Do not return any additional details other than the extracted key value pairs, as you will be penalized for doing so."""},
+                 Once both tasks are complete, return a list of key value pairs with a logical numbering convention and spacing. Do not return any additional details other than the extracted key value pairs, as you will be penalized for doing so."""},
                 {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
             ]}
         ],
         temperature=AZURE_OPENAI_TEMP,
-        max_tokens=1500
+        max_tokens=AZURE_OPENAI_MAX_TOKENS
     )
 
     return response.choices[0].message.content
@@ -83,6 +84,7 @@ def main():
     uploaded_files = st.file_uploader("Upload your documents", type=["pdf"], accept_multiple_files=True)
 
     if uploaded_files:
+        results_dict = {}
         for uploaded_file in uploaded_files:
             expander = st.expander(f"Document: {uploaded_file.name}")
             with expander:
@@ -103,8 +105,8 @@ def main():
                 pdf_url = generate_temp_url(pdf_path)
                 
                 # Create a link to open the PDF in a new tab
-                st.markdown(f'<a href="{pdf_url}" target="_blank">Open PDF in New Tab</a>', unsafe_allow_html=True)
-                
+                st.markdown(f'<a href="{pdf_url}" target="blah">Open PDF in New Tab</a>', unsafe_allow_html=True)
+
                 # Check if results are already in session state
                 if st.session_state[f"results_{uploaded_file.name}"] is None:
                     # Split the PDF into images
@@ -122,26 +124,32 @@ def main():
                         status.text("Status: Completed")
                         # Save results to session state
                         st.session_state[f"results_{uploaded_file.name}"] = results
-                        # Save results to a JSON file with a timestamp
-                        run_date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-                        with open(os.path.join(RESULTS_DIR, f"run_{run_date}.json"), "w") as f:
-                            json.dump(results, f)
+                        results_dict[uploaded_file.name] = results
                     else:
                         status.text("Status: Failed")
                 else:
                     # Display results from session state
                     results = st.session_state[f"results_{uploaded_file.name}"]
+                    results_dict[uploaded_file.name] = results
                     for page_number, result in enumerate(results, start=1):
                         st.subheader(f"Page {page_number}")
                         st.write(result)
+        
+        # Save results to a JSON file with a timestamp
+        if results_dict:
+            run_date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            with open(os.path.join(RESULTS_DIR, f"run_{run_date}.json"), "w") as f:
+                json.dump(results_dict, f)
 
     elif selected_run:
         st.sidebar.write(f"Displaying results for: {selected_run}")
         with open(os.path.join(RESULTS_DIR, selected_run), "r") as f:
             old_results = json.load(f)
-        for page_number, result in enumerate(old_results, start=1):
-            st.subheader(f"Page {page_number}")
-            st.write(result)
+        for document_name, results in old_results.items():
+            st.subheader(f"Document: {document_name}")
+            for page_number, result in enumerate(results, start=1):
+                st.subheader(f"Page {page_number}")
+                st.write(result)
 
 if __name__ == "__main__":
     main()
