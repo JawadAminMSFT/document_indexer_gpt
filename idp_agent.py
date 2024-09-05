@@ -50,7 +50,7 @@ def ocr_data_from_image_form(image_path: str):
                  Verify and validate that the returned list is complete and concise without missing key details or key fields/checkboxes in the form, adding any missing information back to the list. \
                  Be very diligent as there is a financial penalty for missing fields/checkboxes or inaccurate values. In some cases, the data may be laid out in horizontal columns as well as vertical rows, and needs to included in both cases. \
                 
-                 Once both tasks are complete, return a list of key value pairs with a logical numbering convention and spacing. Do not return any additional details other than the extracted key value pairs, as you will be penalized for doing so."""},
+                 Once both tasks are complete, return a list of key value pairs with a logical numbering convention and spacing. Do not return any additional details other than the extracted key value pairs, as you will be penalized for doing so. If an image is not as expected, return an empty list."""},
                 {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
             ]}
         ],
@@ -59,6 +59,41 @@ def ocr_data_from_image_form(image_path: str):
     )
 
     return response.choices[0].message.content
+
+def detect_discrepancies(results_dict):
+    """Detect discrepancies in extracted data."""
+    all_results = []
+    for doc_name, results in results_dict.items():
+        all_results.extend(results)
+    
+    response = client.chat.completions.create(
+        model=AZURE_OPENAI_DEPLOYMENT,
+        response_format={"type": "json_object"},
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant that validates the consistency in extracted data from multiple documents. You will compare the extracted data and highlight any discrepancies. You will return a JSON object listing the most important key value pairs (with one value for each document as applicable, returned as an array of values under the key) with an additional field marked 'type' with value as either 'discrepancy' or 'consistent' to indicate if the data is consistent or not. Do not return any additional content other than the list of key value pairs - this is a strict requirement with a penalty for violation."},
+            {"role": "user", "content": f"Compare the following extracted data and highlight discrepancies as a JSON object highlighting key value pairs and discrepancies:\n\n{json.dumps(all_results)}. If any of the documents is empty or invalid, use the keys from the other document(s) and mark them as discrepancies. Double check the list and only include the most important key value pairs, preferably no more than 10-15 pairs."}
+        ],
+        temperature=AZURE_OPENAI_TEMP,
+        max_tokens=AZURE_OPENAI_MAX_TOKENS
+    )
+
+    discrepancies_json = response.choices[0].message.content
+    discrepancies_dict = json.loads(discrepancies_json)  # Parse JSON string into dictionary
+    return discrepancies_dict
+
+def highlight_discrepancies(discrepancies_dict):
+    """Highlight discrepancies with Markdown, handling None values and making them line by line."""
+    highlighted_discrepancies = []
+    for key, item in discrepancies_dict.items():
+        color = "🔴" if item["type"] == "discrepancy" else "🟢"
+        # Replace None values with "N/A"
+        values = [str(value) if value is not None else "N/A" for value in item["values"]]
+        values_str = " vs ".join(values)
+        # Add each discrepancy in a new line
+        highlighted_discrepancies.append(f"{color} **{key}**: {values_str}\n")
+    return "\n".join(highlighted_discrepancies)
+
+
 
 def split_pdf_to_images(pdf_path):
     """Split PDF into images."""
@@ -75,81 +110,84 @@ def generate_temp_url(file_path):
     return f"file://{file_path}"
 
 def main():
-    st.title("Document Indexer")
+    st.markdown("<h1 style='text-align: center; color: black;'>Document Indexer</h1>", unsafe_allow_html=True)
 
-    # List previous runs in the sidebar
+    # Move the previous runs dropdown to the sidebar
     previous_runs = [f for f in os.listdir(RESULTS_DIR) if f.endswith(".json")]
     selected_run = st.sidebar.selectbox("Select a previous run", [""] + previous_runs)
 
-    uploaded_files = st.file_uploader("Upload your documents", type=["pdf"], accept_multiple_files=True)
+    col1, col2 = st.columns([2, 1])
+
+    with col1:
+        uploaded_files = st.file_uploader("Upload your PDF files here", type=["pdf"], accept_multiple_files=True)
 
     if uploaded_files:
         results_dict = {}
         for uploaded_file in uploaded_files:
-            expander = st.expander(f"Document: {uploaded_file.name}")
+            expander = st.expander(f"Document: {uploaded_file.name}", expanded=True)
             with expander:
                 status = st.text("Status: In Progress")
-                results = []  # Reset results for new run
-                # Save the uploaded file to a temporary location
+                results = []
+
                 pdf_path = os.path.join(tempfile.gettempdir(), uploaded_file.name)
                 with open(pdf_path, "wb") as f:
                     f.write(uploaded_file.getbuffer())
-                
-                # Initialize session state for PDF viewer and results
-                if f"pdf_viewer_{uploaded_file.name}" not in st.session_state:
-                    st.session_state[f"pdf_viewer_{uploaded_file.name}"] = False
-                if f"results_{uploaded_file.name}" not in st.session_state:
-                    st.session_state[f"results_{uploaded_file.name}"] = None
-                
-                # Generate a temporary URL for the PDF file
+
                 pdf_url = generate_temp_url(pdf_path)
-                
-                # Create a link to open the PDF in a new tab
                 st.markdown(f'<a href="{pdf_url}" target="blah">Open PDF in New Tab</a>', unsafe_allow_html=True)
 
-                # Check if results are already in session state
-                if st.session_state[f"results_{uploaded_file.name}"] is None:
-                    # Split the PDF into images
-                    image_paths = split_pdf_to_images(pdf_path)
-                    
-                    for page_number, image_path in enumerate(image_paths, start=1):
-                        # Call the OCR function for each image
-                        result = ocr_data_from_image_form(image_path)
-                        if result:
-                            results.append(result)
-                            st.subheader(f"Page {page_number}")
-                            st.write(result)
-                    
-                    if results:
-                        status.text("Status: Completed")
-                        # Save results to session state
-                        st.session_state[f"results_{uploaded_file.name}"] = results
-                        results_dict[uploaded_file.name] = results
-                    else:
-                        status.text("Status: Failed")
-                else:
-                    # Display results from session state
-                    results = st.session_state[f"results_{uploaded_file.name}"]
-                    results_dict[uploaded_file.name] = results
-                    for page_number, result in enumerate(results, start=1):
+                image_paths = split_pdf_to_images(pdf_path)
+                progress_bar = st.progress(0)
+
+                for page_number, image_path in enumerate(image_paths, start=1):
+                    result = ocr_data_from_image_form(image_path)
+                    if result:
+                        results.append(result)
                         st.subheader(f"Page {page_number}")
+                        st.image(image_path, caption=f"Page {page_number} Preview", use_column_width=True)
                         st.write(result)
-        
-        # Save results to a JSON file with a timestamp
+
+                    progress_bar.progress(page_number / len(image_paths))
+
+                if results:
+                    status.text("Status: Completed")
+                    results_dict[uploaded_file.name] = results
+                else:
+                    status.text("Status: Failed")
+
+        discrepancies_dict = detect_discrepancies(results_dict)
+        highlighted_discrepancies = highlight_discrepancies(discrepancies_dict)
+
+        # Display discrepancies in the sidebar
+        st.sidebar.title("Validation")
+        if highlighted_discrepancies:
+            st.sidebar.markdown(highlighted_discrepancies)
+
+        # Save results and discrepancies to a JSON file with a timestamp
         if results_dict:
             run_date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
             with open(os.path.join(RESULTS_DIR, f"run_{run_date}.json"), "w") as f:
-                json.dump(results_dict, f)
+                json.dump({"results": results_dict, "discrepancies": discrepancies_dict}, f)
 
+    # Handle displaying previous runs
     elif selected_run:
         st.sidebar.write(f"Displaying results for: {selected_run}")
         with open(os.path.join(RESULTS_DIR, selected_run), "r") as f:
-            old_results = json.load(f)
+            old_data = json.load(f)
+        old_results = old_data.get("results", {})
+        old_discrepancies = old_data.get("discrepancies", {})
+
         for document_name, results in old_results.items():
             st.subheader(f"Document: {document_name}")
             for page_number, result in enumerate(results, start=1):
                 st.subheader(f"Page {page_number}")
                 st.write(result)
+
+        # Display discrepancies for previous runs
+        if old_discrepancies:
+            highlighted_discrepancies = highlight_discrepancies(old_discrepancies)
+            st.sidebar.title("Discrepancies")
+            st.sidebar.markdown(highlighted_discrepancies)
 
 if __name__ == "__main__":
     main()
