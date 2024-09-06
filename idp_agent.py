@@ -5,8 +5,9 @@ import os
 import pdf2image
 import tempfile
 import base64
-from config import AZURE_OPENAI_KEY, AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_DEPLOYMENT
 from datetime import datetime
+from config import AZURE_OPENAI_KEY, AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_DEPLOYMENT
+from doc_intel_sample import analyze_document
 
 # Constants
 AZURE_OPENAI_TEMP = 0
@@ -24,7 +25,7 @@ def encode_image(image_path):
     with open(image_path, "rb") as image_file:
         return base64.b64encode(image_file.read()).decode('utf-8')
 
-def ocr_data_from_image_form(image_path: str):
+def ocr_data_from_image_form(image_path: str, doc_intel_result: str):
     """Extract key marked up and filled out fields and checkboxes from an image of a form."""
     base64_image = encode_image(image_path)
     
@@ -37,7 +38,7 @@ def ocr_data_from_image_form(image_path: str):
                 {"type": "text", "text": 
                  """You will perform 2 tasks: \
                     1. Extract key marked up checkboxes, filled out fields, and additional content that have been filled out or marked up in the form. \
-                    2. Verify and validate that the returned list is complete and accurate without missing key details, adding any missing information back to the list and correcting any inaccuracies. \
+                    2. Verify and validate that the returned list is complete and accurate without missing key details, adding any missing information back to the list and correcting any inaccuracies. You will also check against the provided markdown data to correct any mistakes. \
 
                  Task 1: \
                  Extract key marked up checkboxes, filled out fields, and additional content that have been filled out or marked up in the form. \
@@ -49,6 +50,13 @@ def ocr_data_from_image_form(image_path: str):
                  Task 2: \
                  Verify and validate that the returned list is complete and concise without missing key details or key fields/checkboxes in the form, adding any missing information back to the list. \
                  Be very diligent as there is a financial penalty for missing fields/checkboxes or inaccurate values. In some cases, the data may be laid out in horizontal columns as well as vertical rows, and needs to included in both cases. \
+                 Pay specific attention to include fields that include personal identification information, dates, addresses, numeric values, and names. \
+                 You will have to cross-reference the extracted data with the provided markdown data from another OCR tool to ensure accuracy. \
+                 
+                 ---------------------------------------- \
+                 MARKDOWN DATA: \
+                 f{doc_intel_result} \
+                 MARKDOWN DATA END \
                 
                  Once both tasks are complete, return a list of key value pairs with a logical numbering convention and spacing. Do not return any additional details other than the extracted key value pairs, as you will be penalized for doing so. If an image is not as expected, return an empty list."""},
                 {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
@@ -71,7 +79,7 @@ def detect_discrepancies(results_dict):
         response_format={"type": "json_object"},
         messages=[
             {"role": "system", "content": "You are a helpful assistant that validates the consistency in extracted data from multiple documents. You will compare the extracted data and highlight any discrepancies. You will return a JSON object listing the most important key value pairs (with one value for each document as applicable, returned as an array of values under the key) with an additional field marked 'type' with value as either 'discrepancy' or 'consistent' to indicate if the data is consistent or not. Do not return any additional content other than the list of key value pairs - this is a strict requirement with a penalty for violation."},
-            {"role": "user", "content": f"Compare the following extracted data and highlight discrepancies as a JSON object highlighting key value pairs and discrepancies:\n\n{json.dumps(all_results)}. If any of the documents is empty or invalid, use the keys from the other document(s) and mark them as discrepancies. Double check the list and only include the most important key value pairs, preferably no more than 10-15 pairs."}
+            {"role": "user", "content": f"Compare the following extracted data and highlight discrepancies as a JSON object highlighting key value pairs and discrepancies:\n\n{json.dumps(all_results)}. Only compare fields across documents, not within the same document. If any of the documents is empty or invalid, use the keys from the other document(s) and mark them as discrepancies. Double check the list and only include the most important key value pairs, preferably no more than 10-15 pairs."}
         ],
         temperature=AZURE_OPENAI_TEMP,
         max_tokens=AZURE_OPENAI_MAX_TOKENS
@@ -140,7 +148,8 @@ def main():
                 progress_bar = st.progress(0)
 
                 for page_number, image_path in enumerate(image_paths, start=1):
-                    result = ocr_data_from_image_form(image_path)
+                    doc_intel_result = analyze_document(image_path)
+                    result = ocr_data_from_image_form(image_path, doc_intel_result)
                     if result:
                         results.append(result)
                         st.subheader(f"Page {page_number}")
