@@ -7,7 +7,7 @@ import tempfile
 import base64
 from datetime import datetime
 from config import AZURE_OPENAI_KEY, AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_DEPLOYMENT
-from doc_intel_sample import analyze_document
+from doc_intel import analyze_document
 
 # Constants
 AZURE_OPENAI_TEMP = 0
@@ -31,9 +31,9 @@ def ocr_data_from_image_form(image_path: str, doc_intel_result: str):
     
     response = client.chat.completions.create(
         model=AZURE_OPENAI_DEPLOYMENT,
-        response_format={"type": "text"},
+        response_format={"type": "json_object"},
         messages=[
-            {"role": "system", "content": "You are a helpful image analysis and data extraction assistant. You will be tasked with analyzing various images of forms, ID cards, invoices etc. and you will provide a list of key value pairs with the checkbox data, labels and field values, and additional data as applicable. Return a list of key value pairs where each field is in a new line with a logical numbering convention and spacing. Do not return any additional content other than the list of key value pairs - this is a strict requirement with a penalty for violation."},
+            {"role": "system", "content": "You are a helpful image analysis and data extraction assistant. You will be tasked with analyzing various images of forms, ID cards, invoices etc. and you will provide an array of key value pairs with the checkbox data, labels and field values, and additional data as applicable. Return a JSON array of key value pairs. Do not return any additional content other than the JSON array - this is a strict requirement with a penalty for violation."},
             {"role": "user", "content": [
                 {"type": "text", "text": 
                  """You will perform 2 tasks: \
@@ -58,7 +58,7 @@ def ocr_data_from_image_form(image_path: str, doc_intel_result: str):
                  f{doc_intel_result} \
                  MARKDOWN DATA END \
                 
-                 Once both tasks are complete, return a list of key value pairs with a logical numbering convention and spacing. Do not return any additional details other than the extracted key value pairs, as you will be penalized for doing so. If an image is not as expected, return an empty list."""},
+                 Once both tasks are complete, return a JSON array containing the final key value pairs. Do not return any additional details other than the extracted key value pairs as a JSON array, as you will be penalized for doing so. If an image is not as expected, return an empty array."""},
                 {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
             ]}
         ],
@@ -79,7 +79,7 @@ def detect_discrepancies(results_dict):
         response_format={"type": "json_object"},
         messages=[
             {"role": "system", "content": "You are a helpful assistant that validates the consistency in extracted data from multiple documents. You will compare the extracted data and highlight any discrepancies. You will return a JSON object listing the most important key value pairs (with one value for each document as applicable, returned as an array of values under the key) with an additional field marked 'type' with value as either 'discrepancy' or 'consistent' to indicate if the data is consistent or not. Do not return any additional content other than the list of key value pairs - this is a strict requirement with a penalty for violation."},
-            {"role": "user", "content": f"Compare the following extracted data and highlight discrepancies as a JSON object highlighting key value pairs and discrepancies:\n\n{json.dumps(all_results)}. Only compare fields across documents, not within the same document. If any of the documents is empty or invalid, use the keys from the other document(s) and mark them as discrepancies. Double check the list and only include the most important key value pairs, preferably no more than 10-15 pairs."}
+            {"role": "user", "content": f"Compare the following extracted data and highlight discrepancies as a JSON object highlighting key value pairs and discrepancies:\n\n{json.dumps(all_results)}. Only compare fields between two documents, not within the same document. The results JSON is structured to have each document as one JSON object with the key value pairs within an array, and therefore you should compare fields across multiple document objects, and not within the same array. If any of the documents is empty or invalid, use the keys from the other document(s) and mark them as discrepancies. Double check the list and only include the most important key value pairs, preferably no more than 10-15 pairs."}
         ],
         temperature=AZURE_OPENAI_TEMP,
         max_tokens=AZURE_OPENAI_MAX_TOKENS
@@ -118,7 +118,7 @@ def generate_temp_url(file_path):
     return f"file://{file_path}"
 
 def main():
-    st.markdown("<h1 style='text-align: center; color: black;'>Document Indexer</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 style='text-align: center;'>GPT + DOC Intel OCR Engine</h1>", unsafe_allow_html=True)
 
     # Move the previous runs dropdown to the sidebar
     previous_runs = [f for f in os.listdir(RESULTS_DIR) if f.endswith(".json")]
@@ -154,7 +154,7 @@ def main():
                         results.append(result)
                         st.subheader(f"Page {page_number}")
                         st.image(image_path, caption=f"Page {page_number} Preview", use_column_width=True)
-                        st.write(result)
+                        st.json(result)
 
                     progress_bar.progress(page_number / len(image_paths))
 
@@ -190,7 +190,7 @@ def main():
             st.subheader(f"Document: {document_name}")
             for page_number, result in enumerate(results, start=1):
                 st.subheader(f"Page {page_number}")
-                st.write(result)
+                st.json(result)
 
         # Display discrepancies for previous runs
         if old_discrepancies:

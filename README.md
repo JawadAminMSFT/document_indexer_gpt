@@ -43,9 +43,9 @@ The Document Indexer is a Streamlit-based application that allows users to uploa
     AZURE_OPENAI_KEY = ""
     AZURE_OPENAI_ENDPOINT = ""
     AZURE_OPENAI_DEPLOYMENT = ""
-    endpoint = ""
-    key = ""
-    azure_storage_connection_string = ""
+    AZURE_DOC_INTEL_ENDPOINT = ""
+    AZURE_DOC_INTEL_KEY = ""
+    AZURE_STORAGE_CONNECTION_STRING = ""
     ```
 
 ## Usage

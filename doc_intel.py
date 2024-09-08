@@ -3,10 +3,10 @@ from azure.core.credentials import AzureKeyCredential
 from azure.ai.documentintelligence import DocumentIntelligenceClient
 from azure.ai.documentintelligence.models import AnalyzeDocumentRequest, ContentFormat, AnalyzeResult
 from azure.storage.blob import BlobServiceClient
-from config import azure_storage_connection_string, endpoint, key
+from config import AZURE_STORAGE_CONNECTION_STRING, AZURE_DOC_INTEL_ENDPOINT, AZURE_DOC_INTEL_KEY
 
 def upload_file_to_blob(container_name, local_file_path):
-    connect_str = azure_storage_connection_string
+    connect_str = AZURE_STORAGE_CONNECTION_STRING
     blob_service_client = BlobServiceClient.from_connection_string(connect_str)
     local_file_name = os.path.basename(local_file_path)
     blob_client = blob_service_client.get_blob_client(container=container_name, blob=local_file_name)
@@ -20,7 +20,7 @@ def analyze_document(local_file_path):
     if not formUrl:
         return "Failed to upload file to blob storage."
 
-    document_intelligence_client = DocumentIntelligenceClient(endpoint=endpoint, credential=AzureKeyCredential(key))
+    document_intelligence_client = DocumentIntelligenceClient(endpoint=AZURE_DOC_INTEL_ENDPOINT, credential=AzureKeyCredential(AZURE_DOC_INTEL_KEY))
     try:
         poller = document_intelligence_client.begin_analyze_document(
             "prebuilt-layout",
@@ -47,21 +47,21 @@ def analyze_document(local_file_path):
             markdown_lines.append(
                 f"...Line # {line_idx} has text content '{line.content}'"
             )
-
-        for selection_mark in page.selection_marks:
+        if page.selection_marks is not None:
+            for selection_mark in page.selection_marks:
+                markdown_lines.append(
+                    f"...Selection mark is '{selection_mark.state}' and has a confidence of {selection_mark.confidence}"
+                )
+    if result.tables is not None:
+        for table_idx, table in enumerate(result.tables):
             markdown_lines.append(
-                f"...Selection mark is '{selection_mark.state}' and has a confidence of {selection_mark.confidence}"
+                f"Table # {table_idx} has {table.row_count} rows and {table.column_count} columns"
             )
 
-    for table_idx, table in enumerate(result.tables):
-        markdown_lines.append(
-            f"Table # {table_idx} has {table.row_count} rows and {table.column_count} columns"
-        )
-
-        for cell in table.cells:
-            markdown_lines.append(
-                f"...Cell[{cell.row_index}][{cell.column_index}] has content '{cell.content}'"
-            )
+            for cell in table.cells:
+                markdown_lines.append(
+                    f"...Cell[{cell.row_index}][{cell.column_index}] has content '{cell.content}'"
+                )
 
     markdown_lines.append("----------------------------------------")
     return "\n".join(markdown_lines)
