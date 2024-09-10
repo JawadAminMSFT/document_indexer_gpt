@@ -8,6 +8,7 @@ import base64
 from datetime import datetime
 from config import AZURE_OPENAI_KEY, AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_DEPLOYMENT
 from doc_intel import analyze_document
+from doc_classifier import classify
 
 # Constants
 AZURE_OPENAI_TEMP = 0
@@ -149,6 +150,8 @@ def main():
 
                 for page_number, image_path in enumerate(image_paths, start=1):
                     doc_intel_result = analyze_document(image_path)
+                    doc_classification = classify(image_path)
+                    print(doc_classification)
                     result = ocr_data_from_image_form(image_path, doc_intel_result)
                     if result:
                         results.append(result)

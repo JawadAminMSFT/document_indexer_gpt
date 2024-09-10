@@ -67,5 +67,5 @@ def analyze_document(local_file_path):
     return "\n".join(markdown_lines)
 
 # Example usage
-markdown_result = analyze_document(r"C:\Users\jawadamin\Downloads\appl_form_image.png")
-print(markdown_result)
+# markdown_result = analyze_document(r"C:\Users\jawadamin\Downloads\appl_form_image.png")
+# print(markdown_result)
