@@ -2,3 +2,7 @@ openai
 streamlit
 PyPDF2
 pdf2image
+
+azure-core
+azure-ai-documentintelligence
+azure-storage-blob
