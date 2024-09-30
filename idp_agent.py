@@ -28,7 +28,7 @@ def encode_image(image_path):
 def ocr_data_from_image_form(image_path: str, doc_intel_result: str):
     """Extract key marked up and filled out fields and checkboxes from an image of a form."""
     base64_image = encode_image(image_path)
-    
+    print(f"Document Intelligence Markdown output: {doc_intel_result}")
     response = client.chat.completions.create(
         model=AZURE_OPENAI_DEPLOYMENT,
         response_format={"type": "json_object"},

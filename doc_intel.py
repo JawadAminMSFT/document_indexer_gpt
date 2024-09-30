@@ -22,6 +22,7 @@ def analyze_document(local_file_path):
 
     document_intelligence_client = DocumentIntelligenceClient(endpoint=AZURE_DOC_INTEL_ENDPOINT, credential=AzureKeyCredential(AZURE_DOC_INTEL_KEY))
     try:
+        print(formUrl)
         poller = document_intelligence_client.begin_analyze_document(
             "prebuilt-layout",
             AnalyzeDocumentRequest(url_source=formUrl),
@@ -35,12 +36,12 @@ def analyze_document(local_file_path):
     if result.styles is None:
         # Handle the None case, e.g., log an error or return an empty list
         print("Result.styles is None")
-        return markdown_lines
-    
-    for idx, style in enumerate(result.styles):
-        markdown_lines.append(
-            f"Document contains {'handwritten' if style.is_handwritten else 'no handwritten'} content"
-        )
+        #return markdown_lines
+    else:
+        for idx, style in enumerate(result.styles):
+            markdown_lines.append(
+                f"Document contains {'handwritten' if style.is_handwritten else 'no handwritten'} content"
+            )
 
     for page in result.pages:
         for line_idx, line in enumerate(page.lines):
